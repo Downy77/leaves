@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 import json
 
-from app.models import AskRequest, AskResponse
+from app.models import AskRequest, AskResponse, TitleRequest, TitleResponse
 from app.services.qa_service import qa_service
 from app.services.qa_stream import qa_stream_service
 from app.services.storage import metadata_store
@@ -14,6 +14,11 @@ router = APIRouter(prefix="/qa", tags=["qa"])
 @router.post("/ask", response_model=AskResponse)
 async def ask_question(payload: AskRequest) -> AskResponse:
     return qa_service.ask(payload)
+
+
+@router.post("/title", response_model=TitleResponse)
+async def generate_title(payload: TitleRequest) -> TitleResponse:
+    return TitleResponse(title=qa_service.generate_title(payload.question))
 
 
 @router.post("/ask/stream")

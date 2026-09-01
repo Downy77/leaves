@@ -18,6 +18,7 @@ class UploadResponse(BaseModel):
 
 
 class AskRequest(BaseModel):
+    session_id: int | None = Field(default=None, description="Conversation session ID.")
     question: str = Field(..., min_length=1, description="User question.")
     top_k: int = Field(default=3, ge=1, le=10, description="Number of retrieved chunks.")
     mode: Literal["knowledge_base", "general"] = Field(
@@ -40,6 +41,14 @@ class AskResponse(BaseModel):
     matches: list[RetrievedChunk]
     mode: Literal["knowledge_base", "general"]
     answer_source: Literal["knowledge_base", "general_assistant"]
+
+
+class TitleRequest(BaseModel):
+    question: str = Field(..., min_length=1, description="The first user question for generating a title.")
+
+
+class TitleResponse(BaseModel):
+    title: str
 
 
 class DocumentListResponse(BaseModel):

@@ -2,12 +2,51 @@ const JSON_HEADERS = {
   "Content-Type": "application/json",
 };
 
+function authHeaders(token) {
+  return token
+    ? {
+        Authorization: `Bearer ${token}`,
+      }
+    : {};
+}
+
 async function parseResponse(response) {
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new Error(data.detail || "请求失败");
   }
   return data;
+}
+
+export async function registerUser(payload) {
+  const response = await fetch("/auth/register", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(payload),
+  });
+  return parseResponse(response);
+}
+
+export async function loginUser(username, password) {
+  const formData = new URLSearchParams();
+  formData.append("username", username);
+  formData.append("password", password);
+
+  const response = await fetch("/auth/login", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: formData.toString(),
+  });
+  return parseResponse(response);
+}
+
+export async function fetchCurrentUser(token) {
+  const response = await fetch("/auth/me", {
+    headers: authHeaders(token),
+  });
+  return parseResponse(response);
 }
 
 export async function fetchDocuments() {
@@ -26,20 +65,48 @@ export async function uploadDocument(file) {
   return parseResponse(response);
 }
 
-export async function askQuestion(payload) {
-  const response = await fetch("/qa/ask", {
-    method: "POST",
-    headers: JSON_HEADERS,
-    body: JSON.stringify(payload),
+export async function fetchChatSessions(mode, token) {
+  const response = await fetch(`/chat/sessions?mode=${encodeURIComponent(mode)}`, {
+    headers: authHeaders(token),
   });
   return parseResponse(response);
 }
 
-export function streamQuestion(payload, onMeta, onToken, onDone) {
+export async function createChatSession(mode, token, title = "") {
+  const response = await fetch("/chat/sessions", {
+    method: "POST",
+    headers: {
+      ...JSON_HEADERS,
+      ...authHeaders(token),
+    },
+    body: JSON.stringify({ mode, title: title || null }),
+  });
+  return parseResponse(response);
+}
+
+export async function deleteChatSession(sessionId, token) {
+  const response = await fetch(`/chat/sessions/${sessionId}`, {
+    method: "DELETE",
+    headers: authHeaders(token),
+  });
+  return parseResponse(response);
+}
+
+export async function fetchChatMessages(sessionId, token) {
+  const response = await fetch(`/chat/sessions/${sessionId}/messages`, {
+    headers: authHeaders(token),
+  });
+  return parseResponse(response);
+}
+
+export function streamQuestion(sessionId, payload, token, onMeta, onToken, onDone) {
   return new Promise((resolve, reject) => {
-    fetch("/qa/ask/stream", {
+    fetch(`/chat/sessions/${sessionId}/stream`, {
       method: "POST",
-      headers: JSON_HEADERS,
+      headers: {
+        ...JSON_HEADERS,
+        ...authHeaders(token),
+      },
       body: JSON.stringify(payload),
     }).then(async (response) => {
       if (!response.ok || !response.body) {

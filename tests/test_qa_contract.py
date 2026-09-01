@@ -59,3 +59,40 @@ def test_knowledge_base_qa_contract(client):
     assert payload["mode"] == "knowledge_base"
     assert payload["answer_source"] == "knowledge_base"
     assert len(payload["matches"]) == 1
+
+
+def test_general_web_search_context_building(monkeypatch):
+    from importlib import reload
+
+    from app.services import qa_stream as qa_stream_module
+
+    qa_stream_module = reload(qa_stream_module)
+    qa_stream_service = qa_stream_module.qa_stream_service
+
+    monkeypatch.setattr(qa_stream_service.settings, "tavily_api_key", "test-key")
+    monkeypatch.setattr(qa_stream_service.settings, "tavily_max_results", 2)
+
+    class DummyTavilySearch:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def invoke(self, payload):
+            assert "OpenAI" in payload["query"]
+            return {
+                "answer": "OpenAI 发布了新功能。",
+                "results": [
+                    {
+                        "title": "OpenAI News",
+                        "url": "https://example.com/openai-news",
+                        "content": "OpenAI 发布了新的模型和产品更新。",
+                    }
+                ],
+            }
+
+    with patch.object(qa_stream_module, "TavilySearch", DummyTavilySearch):
+        context = qa_stream_service.build_web_context("今天 OpenAI 有什么新消息")
+
+    assert context
+    assert "联网检索摘要" in context
+    assert "OpenAI News" in context
+    assert "https://example.com/openai-news" in context

@@ -2,6 +2,7 @@ from collections.abc import Iterator
 
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_tavily import TavilySearch
 
 from app.config import get_settings
 from app.models import AskRequest, RetrievedChunk
@@ -31,14 +32,63 @@ class QAStreamService:
             for document, score in results
         ]
 
+    def build_web_context(self, question: str) -> str:
+        if not self.settings.tavily_api_key:
+            return ""
+
+        try:
+            tool = TavilySearch(
+                tavily_api_key=self.settings.tavily_api_key,
+                max_results=self.settings.tavily_max_results,
+                topic="general",
+                search_depth="advanced",
+                include_answer=True,
+            )
+            result = tool.invoke({"query": question})
+        except Exception:
+            return ""
+
+        if isinstance(result, str):
+            return result.strip()
+
+        if not isinstance(result, dict):
+            return ""
+
+        results = result.get("results", [])
+        answer = result.get("answer")
+        lines: list[str] = []
+
+        if answer:
+            lines.append(f"联网检索摘要：{answer}")
+
+        for index, item in enumerate(results, start=1):
+            title = item.get("title") or item.get("url") or f"来源 {index}"
+            content = item.get("content") or item.get("raw_content") or ""
+            url = item.get("url") or ""
+            snippet = content.strip().replace("\n", " ")
+            if len(snippet) > 260:
+                snippet = f"{snippet[:260]}..."
+            line = f"{index}. {title}"
+            if url:
+                line = f"{line} ({url})"
+            if snippet:
+                line = f"{line}\n   {snippet}"
+            lines.append(line)
+
+        return "\n\n".join(lines)
+
     def _build_general_chain(self):
         prompt = ChatPromptTemplate.from_messages(
             [
                 (
                     "system",
-                    "You are a helpful assistant for a FastAPI and Vue knowledge base application. "
-                    "Answer clearly in Chinese unless the user explicitly asks for another language.",
+                    "你是一个带联网搜索能力的问答助手。"
+                    "你需要优先参考给定的联网检索结果来回答问题。"
+                    "如果检索结果不足以支撑结论，要明确说明，并避免编造。"
+                    "回答请使用中文，除非用户明确要求其他语言。"
+                    "如果提供了联网检索结果，请结合结果内容给出简洁、可靠的回答，并适当提及来源。",
                 ),
+                ("system", "联网检索结果：\n{web_context}"),
                 ("human", "{question}"),
             ]
         )
@@ -61,14 +111,19 @@ class QAStreamService:
         )
         return prompt | create_chat_model() | StrOutputParser()
 
-    def stream_answer(self, payload: AskRequest) -> Iterator[str]:
+    def stream_answer(
+        self,
+        payload: AskRequest,
+        matches: list[RetrievedChunk] | None = None,
+    ) -> Iterator[str]:
         if payload.mode == "general":
+            web_context = self.build_web_context(payload.question)
             chain = self._build_general_chain()
-            for chunk in chain.stream({"question": payload.question}):
+            for chunk in chain.stream({"question": payload.question, "web_context": web_context or "无"}):
                 yield chunk
             return
 
-        matches = self.build_matches(payload.question, payload.top_k)
+        matches = matches or self.build_matches(payload.question, payload.top_k)
         if not matches:
             yield (
                 f"没有在知识库中找到与问题“{payload.question}”足够相关的内容。"
